@@ -11,6 +11,7 @@ import shutil
 import argparse
 import six
 import pkgutil
+import uuid
 from six.moves import urllib
 from abc import abstractmethod, ABCMeta
 from distutils.dir_util import copy_tree
@@ -74,26 +75,28 @@ class Generator(object):
 
     def _create_entry_point(self, filename, varname):
         directory = os.path.dirname(filename)
-        if not os.path.isdir(directory):
+        if directory and not os.path.isdir(directory):
             os.makedirs(directory)
 
         def _format_dirs(dirs):
-            return ":".join(["$%s/%s" % (varname, d) for d in dirs])
+            return ":".join(["%s/%s" % (varname, d) for d in dirs])
 
         path = _format_dirs(self._bin_dirs)
         ld_library_path = _format_dirs(self._lib_dirs)
-        exe = "bin/camera"
+        exe = varname + "/bin/camera"
 
         content = """#!/usr/bin/env bash
 set -ex
 export PATH=$PATH:{path}
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{ld_library_path}
 pushd $(dirname {exe})
-{exe}
+$(basename {exe})
 popd
 """.format(path=path,
            ld_library_path=ld_library_path,
            exe=exe)
+
+        print(content)
 
         self._save(filename, content)
         self._chmod_plus_x(filename)
@@ -113,6 +116,8 @@ class DirectoryGenerator(Generator):
         for src_bin_dir, dst_bin_dir in self._dep_bin_dirs.items():
             copy_tree(src_bin_dir, os.path.join(destination, dst_bin_dir))
         self._run(["conan", "imports", "-if", tempfile.gettempdir(), "-imf", destination, "."])
+        shutil.copy(os.path.join("bin", "camera"), os.path.join(destination, "bin", "camera"))
+        self._chmod_plus_x(os.path.join(destination, "bin", "camera"))
 
 
 class ArchiveGenerator(DirectoryGenerator):
@@ -136,7 +141,7 @@ class MakeSelfGenerator(DirectoryGenerator):
                 self._chmod_plus_x(filename)
                 self._run([filename, "--target", os.path.join(tempfile.gettempdir(), "makeself")])
                 os.unlink(filename)
-            self._create_entry_point(os.path.join(temp_folder, "conan-entrypoint.sh"), "USER_PWD")
+            self._create_entry_point(os.path.join(temp_folder, "conan-entrypoint.sh"), "$USER_PWD")
             self._run([makeself, temp_folder, destination + ".run", "conan-generated makeself.sh", "./conan-entrypoint.sh"])
 
 
@@ -155,7 +160,7 @@ class AppImageGenerator(DirectoryGenerator):
             apprun = self._download(base_url + apprun, apprun)
             appimagetool = self._download(base_url + appimagetool, appimagetool)
             self._chmod_plus_x(appimagetool)
-            self._create_entry_point(os.path.join(temp_folder, "usr", "bin", destination), "APPDIR")
+            self._create_entry_point(os.path.join(temp_folder, "usr", "bin", destination), "$APPDIR")
             shutil.copy(apprun, os.path.join(temp_folder, "AppRun"))
             self._chmod_plus_x(os.path.join(temp_folder, "AppRun"))
             content = """[Desktop Entry]
@@ -171,6 +176,67 @@ Categories=Utility;
             self._run([appimagetool, temp_folder])
 
 
+class FlatPakGenerator(DirectoryGenerator):
+    def run(self, destination):
+        with tempfile.TemporaryDirectory() as temp_folder:
+            super(FlatPakGenerator, self).run(temp_folder)
+
+            app_id = "org.flatpak.%s" % destination
+            manifest = {
+                "app-id": app_id,
+                "runtime": "org.freedesktop.Platform",
+                "runtime-version": "18.08",
+                "sdk": "org.freedesktop.Sdk",
+                "command": "conan-entrypoint.sh",
+                "modules": [
+                    {
+                        "name": destination,
+                        "buildsystem": "simple",
+                        "build-commands": ["install -D conan-entrypoint.sh /app/bin/conan-entrypoint.sh"],
+                        "sources": [
+                            {
+                                "type": "file",
+                                "path": "conan-entrypoint.sh"
+                            }
+                        ]
+                    }
+                ]
+            }
+            sources = []
+            build_commands = []
+            for root, _, filenames in os.walk(temp_folder):
+                for filename in filenames:
+                    filepath = os.path.join(root, filename)
+                    unique_name = str(uuid.uuid4())
+                    source = {
+                        "type": "file",
+                        "path": filepath,
+                        "dest-filename": unique_name
+                    }
+                    build_command = "install -D %s /app/%s" % (unique_name, os.path.relpath(filepath, temp_folder))
+                    sources.append(source)
+                    build_commands.append(build_command)
+
+            manifest["modules"][0]["sources"].extend(sources)
+            manifest["modules"][0]["build-commands"].extend(build_commands)
+
+            manifest_file = os.path.join(tempfile.gettempdir(), "%s.json" % app_id)
+            self._save(manifest_file, json.dumps(manifest))
+
+            entry_point = os.path.join(tempfile.gettempdir(), "conan-entrypoint.sh")
+            self._create_entry_point(entry_point, "/app")
+            self._chmod_plus_x(entry_point)
+
+            with tempfile.TemporaryDirectory() as build_folder:
+                self._run(["flatpak-builder", build_folder, manifest_file])
+                self._run(["flatpak-builder", "--repo=repo", "--force-clean", build_folder, manifest_file])
+                try:
+                    self._run(["flatpak", "--user", "remote-add", "--no-gpg-verify", "conan-repo", "repo"])
+                except subprocess.CalledProcessError:
+                    pass
+                self._run(["flatpak", "--user", "install", "-y", "--reinstall", "conan-repo", app_id])
+
+
 def main(args):
     conan_build_info = os.path.join(tempfile.gettempdir(), "conanbuildinfo.json")
     if os.path.isfile(conan_build_info):
@@ -183,7 +249,8 @@ def main(args):
                   "tbz": ArchiveGenerator(archive_format="bztar"),
                   "txz": ArchiveGenerator(archive_format="xztar"),
                   "makeself": MakeSelfGenerator(),
-                  "appimage": AppImageGenerator()}
+                  "appimage": AppImageGenerator(),
+                  "flatpak": FlatPakGenerator()}
 
     parser = argparse.ArgumentParser(description='conan deploy tool')
     parser.add_argument('-n', '--name', type=str, default='conan_deploy', help='name of the output file')
