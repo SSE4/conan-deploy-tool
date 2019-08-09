@@ -8,6 +8,7 @@ import json
 import os
 import zipfile
 import shutil
+import argparse
 from distutils.dir_util import copy_tree
 
 try:
@@ -24,7 +25,6 @@ class Generator(object):
 
 class DirectoryGenerator(Generator):
     def __init__(self):
-        self.name = "dir"
         super(DirectoryGenerator, self).__init__()
 
     def run(self, destination):
@@ -71,16 +71,17 @@ class ArchiveGenerator(DirectoryGenerator):
 
 
 def main(args):
-    print(args)
+    generators = {"dir": DirectoryGenerator(),
+                  "zip": ArchiveGenerator(archive_format="zip"),
+                  "tar": ArchiveGenerator(archive_format="tar"),
+                  "tgz": ArchiveGenerator(archive_format="gztar"),
+                  "tbz": ArchiveGenerator(archive_format="bztar")}
 
-    destdir = "conan_deploy"
+    parser = argparse.ArgumentParser(description='conan deploy tool')
+    parser.add_argument('-n', '--name', type=str, default='conan_deploy', help='name of the output file')
+    parser.add_argument('-g', '--generator', type=str, action='append', dest='generators', required=True, help='deploy generator to use', choices=generators.keys())
+    args = parser.parse_args(args)
 
-    generators = {DirectoryGenerator(),
-                  ArchiveGenerator(archive_format="zip"),
-                  ArchiveGenerator(archive_format="tar"),
-                  ArchiveGenerator(archive_format="gztar"),
-                  ArchiveGenerator(archive_format="bztar")}
-
-    for generator in generators:
-        print("running generator %s" % generator.name)
-        generator.run(destdir)
+    for generator in args.generators:
+        print("running generator %s" % generator)
+        generators[generator].run(args.name)
