@@ -10,6 +10,7 @@ import zipfile
 import shutil
 import argparse
 import six
+import pkgutil
 from six.moves import urllib
 from abc import abstractmethod, ABCMeta
 from distutils.dir_util import copy_tree
@@ -71,7 +72,11 @@ class Generator(object):
         print('running command: "%s"' % ' '.join(command))
         return subprocess.check_call(command)
 
-    def _create_entrypoint(self, directory, varname):
+    def _create_entry_point(self, filename, varname):
+        directory = os.path.dirname(filename)
+        if not os.path.isdir(directory):
+            os.makedirs(directory)
+
         def _format_dirs(dirs):
             return ":".join(["$%s/%s" % (varname, d) for d in dirs])
 
@@ -79,7 +84,7 @@ class Generator(object):
         ld_library_path = _format_dirs(self._lib_dirs)
         exe = "bin/camera"
 
-        contents = """#!/usr/bin/env bash
+        content = """#!/usr/bin/env bash
 set -ex
 export PATH=$PATH:{path}
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{ld_library_path}
@@ -90,10 +95,13 @@ popd
            ld_library_path=ld_library_path,
            exe=exe)
 
-        filename = os.path.join(directory, "conan-entrypoint.sh")
-        with open(filename, "w") as f:
-            f.write(contents)
+        self._save(filename, content)
         self._chmod_plus_x(filename)
+
+    def _save(self, filename, content):
+        flags = "w" if isinstance(content, six.string_types) else "wb"
+        with open(filename, flags) as f:
+            f.write(content)
 
 
 class DirectoryGenerator(Generator):
@@ -128,8 +136,39 @@ class MakeSelfGenerator(DirectoryGenerator):
                 self._chmod_plus_x(filename)
                 self._run([filename, "--target", os.path.join(tempfile.gettempdir(), "makeself")])
                 os.unlink(filename)
-            self._create_entrypoint(temp_folder, "USER_PWD")
+            self._create_entry_point(os.path.join(temp_folder, "conan-entrypoint.sh"), "USER_PWD")
             self._run([makeself, temp_folder, destination + ".run", "conan-generated makeself.sh", "./conan-entrypoint.sh"])
+
+
+class AppImageGenerator(DirectoryGenerator):
+    def __init__(self):
+        self._app_image_kit_version = 12
+        super(AppImageGenerator, self).__init__()
+
+    def run(self, destination):
+        with tempfile.TemporaryDirectory() as temp_folder:
+            super(AppImageGenerator, self).run(temp_folder)
+            arch = "x86_64"
+            apprun = "AppRun-%s" % arch
+            appimagetool = "appimagetool-%s.AppImage" % arch
+            base_url = "https://github.com/AppImage/AppImageKit/releases/download/%s/" % self._app_image_kit_version
+            apprun = self._download(base_url + apprun, apprun)
+            appimagetool = self._download(base_url + appimagetool, appimagetool)
+            self._chmod_plus_x(appimagetool)
+            self._create_entry_point(os.path.join(temp_folder, "usr", "bin", destination), "APPDIR")
+            shutil.copy(apprun, os.path.join(temp_folder, "AppRun"))
+            self._chmod_plus_x(os.path.join(temp_folder, "AppRun"))
+            content = """[Desktop Entry]
+Name={name}
+Exec={name}
+Icon={name}
+Type=Application
+Categories=Utility;
+""".format(name=destination)
+            self._save(os.path.join(temp_folder, "%s.desktop" % destination), content)
+            icon = pkgutil.get_data(__name__, 'conan.png')
+            self._save(os.path.join(temp_folder, "%s.png" % destination), icon)
+            self._run([appimagetool, temp_folder])
 
 
 def main(args):
@@ -143,7 +182,8 @@ def main(args):
                   "tgz": ArchiveGenerator(archive_format="gztar"),
                   "tbz": ArchiveGenerator(archive_format="bztar"),
                   "txz": ArchiveGenerator(archive_format="xztar"),
-                  "makeself": MakeSelfGenerator()}
+                  "makeself": MakeSelfGenerator(),
+                  "appimage": AppImageGenerator()}
 
     parser = argparse.ArgumentParser(description='conan deploy tool')
     parser.add_argument('-n', '--name', type=str, default='conan_deploy', help='name of the output file')

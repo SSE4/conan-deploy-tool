@@ -113,7 +113,7 @@ setup(
     # have to be included in MANIFEST.in as well.
     package_data={
         '': ['*.md'],
-        'conan_deploy_tool': ['*.txt']
+        'conan_deploy_tool': ['*.txt', 'conan.png']
     },
 
     # Although 'package_data' is the preferred approach, in some case you may
