@@ -142,6 +142,7 @@ def main(args):
                   "tar": ArchiveGenerator(archive_format="tar"),
                   "tgz": ArchiveGenerator(archive_format="gztar"),
                   "tbz": ArchiveGenerator(archive_format="bztar"),
+                  "txz": ArchiveGenerator(archive_format="xztar"),
                   "makeself": MakeSelfGenerator()}
 
     parser = argparse.ArgumentParser(description='conan deploy tool')
