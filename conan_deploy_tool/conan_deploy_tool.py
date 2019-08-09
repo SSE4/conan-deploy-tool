@@ -104,6 +104,7 @@ class DirectoryGenerator(Generator):
             copy_tree(src_lib_dir, os.path.join(destination, dst_lib_dir))
         for src_bin_dir, dst_bin_dir in self._dep_bin_dirs.items():
             copy_tree(src_bin_dir, os.path.join(destination, dst_bin_dir))
+        self._run(["conan", "imports", "-if", tempfile.gettempdir(), "-imf", destination, "."])
 
 
 class ArchiveGenerator(DirectoryGenerator):
