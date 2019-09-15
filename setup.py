@@ -42,7 +42,7 @@ def load_version():
         return version
 
 setup(
-    name='conan_deploy_tool',
+    name='conan-deploy-tool',
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
@@ -61,7 +61,7 @@ setup(
     description='script to deploy conan-based applications',
 
     # The project's main homepage.
-    url='https://github.com/SSE4/conan_deploy_tool',
+    url='https://github.com/SSE4/conan-deploy-tool',
 
     # Author details
     author='Bincrafters',
@@ -127,7 +127,7 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'conan_deploy_tool = conan_deploy_tool.main:run',
+            'conan-deploy-tool = conan_deploy_tool.main:run',
         ],
     },
 )
