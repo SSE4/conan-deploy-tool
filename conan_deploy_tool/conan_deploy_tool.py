@@ -22,7 +22,7 @@ __version__ = '0.0.1'
 
 @six.add_metaclass(ABCMeta)
 class Generator(object):
-    def __init__(self):
+    def init(self):
         conan_build_info = os.path.join(tempfile.gettempdir(), "conanbuildinfo.json")
         if not os.path.isfile(conan_build_info):
             self._run(["conan", "install", ".", "-g", "json", "-if", tempfile.gettempdir()])
@@ -234,10 +234,6 @@ class FlatPakGenerator(DirectoryGenerator):
 
 
 def main(args):
-    conan_build_info = os.path.join(tempfile.gettempdir(), "conanbuildinfo.json")
-    if os.path.isfile(conan_build_info):
-        os.unlink(conan_build_info)
-
     generators = {"dir": DirectoryGenerator(),
                   "zip": ArchiveGenerator(archive_format="zip"),
                   "tar": ArchiveGenerator(archive_format="tar"),
@@ -251,8 +247,14 @@ def main(args):
     parser = argparse.ArgumentParser(description='conan deploy tool')
     parser.add_argument('-n', '--name', type=str, default='conan_deploy', help='name of the output file')
     parser.add_argument('-g', '--generator', type=str, action='append', dest='generators', required=True, help='deploy generator to use', choices=generators.keys())
+    parser.add_argument('-v', '--version', action='version', version=__version__)
     args = parser.parse_args(args)
+
+    conan_build_info = os.path.join(tempfile.gettempdir(), "conanbuildinfo.json")
+    if os.path.isfile(conan_build_info):
+        os.unlink(conan_build_info)
 
     for generator in args.generators:
         print("running generator %s" % generator)
+        generators[generator].init()
         generators[generator].run(args.name)
