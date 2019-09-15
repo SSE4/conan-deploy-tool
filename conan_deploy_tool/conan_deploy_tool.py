@@ -13,9 +13,11 @@ import six
 import pkgutil
 import uuid
 import tempfile
+import sys
 from six.moves import urllib
 from abc import abstractmethod, ABCMeta
 from distutils.dir_util import copy_tree
+from configparser import ConfigParser
 try:
     from tempfile import TemporaryDirectory
 except ImportError:
@@ -26,7 +28,11 @@ __version__ = '0.0.1'
 
 @six.add_metaclass(ABCMeta)
 class Generator(object):
-    def init(self):
+    def init(self, config):
+        self._config = config
+        self._name = config['general']['name']
+        self._executable = config['general']['executable']
+
         conan_build_info = os.path.join(tempfile.gettempdir(), "conanbuildinfo.json")
         if not os.path.isfile(conan_build_info):
             self._run(["conan", "install", ".", "-g", "json", "-if", tempfile.gettempdir()])
@@ -55,7 +61,7 @@ class Generator(object):
                     self._dep_bin_dirs[bin_path] = bin_dir
 
     @abstractmethod
-    def run(self, destination):
+    def run(self):
         raise NotImplementedException('"run" method is abstract!')
 
     def _download(self, url, name):
@@ -83,7 +89,7 @@ class Generator(object):
 
         path = _format_dirs(self._bin_dirs)
         ld_library_path = _format_dirs(self._lib_dirs)
-        exe = varname + "/bin/camera"
+        exe = varname + "/" + self._executable
 
         content = """#!/usr/bin/env bash
 set -ex
@@ -108,7 +114,10 @@ popd
 
 
 class DirectoryGenerator(Generator):
-    def run(self, destination):
+    def run(self):
+        self.invoke(self._name)
+
+    def invoke(self, destination):
         if not os.path.isdir(destination):
             os.makedirs(destination)
         for src_lib_dir, dst_bin_dir in self._dep_lib_dirs.items():
@@ -116,8 +125,8 @@ class DirectoryGenerator(Generator):
         for src_bin_dir, dst_bin_dir in self._dep_bin_dirs.items():
             copy_tree(src_bin_dir, os.path.join(destination, dst_bin_dir))
         self._run(["conan", "imports", "-if", tempfile.gettempdir(), "-imf", destination, "."])
-        shutil.copy(os.path.join("bin", "camera"), os.path.join(destination, "bin", "camera"))
-        self._chmod_plus_x(os.path.join(destination, "bin", "camera"))
+        shutil.copy(self._executable, os.path.join(destination, self._executable))
+        self._chmod_plus_x(os.path.join(destination, self._executable))
 
 
 class ArchiveGenerator(DirectoryGenerator):
@@ -125,16 +134,16 @@ class ArchiveGenerator(DirectoryGenerator):
         super(ArchiveGenerator, self).__init__()
         self.archive_format = archive_format
 
-    def run(self, destination):
+    def run(self):
         with TemporaryDirectory() as temp_folder:
-            super(ArchiveGenerator, self).run(temp_folder)
-            shutil.make_archive(destination, self.archive_format, temp_folder)
+            super(ArchiveGenerator, self).invoke(temp_folder)
+            shutil.make_archive(self._name, self.archive_format, temp_folder)
 
 
 class MakeSelfGenerator(DirectoryGenerator):
-    def run(self, destination):
+    def run(self):
         with TemporaryDirectory() as temp_folder:
-            super(MakeSelfGenerator, self).run(temp_folder)
+            super(MakeSelfGenerator, self).invoke(temp_folder)
             makeself = os.path.join(tempfile.gettempdir(), "makeself", "makeself.sh")
             if not os.path.isfile(makeself):
                 filename = self._download("https://github.com/megastep/makeself/releases/download/release-2.4.0/makeself-2.4.0.run", "makeself.run")
@@ -142,7 +151,7 @@ class MakeSelfGenerator(DirectoryGenerator):
                 self._run([filename, "--target", os.path.join(tempfile.gettempdir(), "makeself")])
                 os.unlink(filename)
             self._create_entry_point(os.path.join(temp_folder, "conan-entrypoint.sh"), "$USER_PWD")
-            self._run([makeself, temp_folder, destination + ".run", "conan-generated makeself.sh", "./conan-entrypoint.sh"])
+            self._run([makeself, temp_folder, self._name+ ".run", "conan-generated makeself.sh", "./conan-entrypoint.sh"])
 
 
 class AppImageGenerator(DirectoryGenerator):
@@ -150,9 +159,9 @@ class AppImageGenerator(DirectoryGenerator):
         self._app_image_kit_version = 12
         super(AppImageGenerator, self).__init__()
 
-    def run(self, destination):
+    def run(self):
         with TemporaryDirectory() as temp_folder:
-            super(AppImageGenerator, self).run(temp_folder)
+            super(AppImageGenerator, self).invoke(temp_folder)
             arch = "x86_64"
             apprun = "AppRun-%s" % arch
             appimagetool = "appimagetool-%s.AppImage" % arch
@@ -160,7 +169,7 @@ class AppImageGenerator(DirectoryGenerator):
             apprun = self._download(base_url + apprun, apprun)
             appimagetool = self._download(base_url + appimagetool, appimagetool)
             self._chmod_plus_x(appimagetool)
-            self._create_entry_point(os.path.join(temp_folder, "usr", "bin", destination), "$APPDIR")
+            self._create_entry_point(os.path.join(temp_folder, "usr", "bin", self._name), "$APPDIR")
             shutil.copy(apprun, os.path.join(temp_folder, "AppRun"))
             self._chmod_plus_x(os.path.join(temp_folder, "AppRun"))
             content = """[Desktop Entry]
@@ -169,19 +178,19 @@ Exec={name}
 Icon={name}
 Type=Application
 Categories=Utility;
-""".format(name=destination)
-            self._save(os.path.join(temp_folder, "%s.desktop" % destination), content)
+""".format(name=self._name)
+            self._save(os.path.join(temp_folder, "%s.desktop" % self._name), content)
             icon = pkgutil.get_data(__name__, 'conan.png')
-            self._save(os.path.join(temp_folder, "%s.png" % destination), icon)
+            self._save(os.path.join(temp_folder, "%s.png" % self._name), icon)
             self._run([appimagetool, temp_folder])
 
 
 class FlatPakGenerator(DirectoryGenerator):
-    def run(self, destination):
+    def run(self):
         with TemporaryDirectory() as temp_folder:
-            super(FlatPakGenerator, self).run(temp_folder)
+            super(FlatPakGenerator, self).invoke(temp_folder)
 
-            app_id = "org.flatpak.%s" % destination
+            app_id = "org.flatpak.%s" % self._name
             manifest = {
                 "app-id": app_id,
                 "runtime": "org.freedesktop.Platform",
@@ -190,7 +199,7 @@ class FlatPakGenerator(DirectoryGenerator):
                 "command": "conan-entrypoint.sh",
                 "modules": [
                     {
-                        "name": destination,
+                        "name": self._name,
                         "buildsystem": "simple",
                         "build-commands": ["install -D conan-entrypoint.sh /app/bin/conan-entrypoint.sh"],
                         "sources": [
@@ -249,16 +258,24 @@ def main(args):
                   "flatpak": FlatPakGenerator()}
 
     parser = argparse.ArgumentParser(description='conan deploy tool')
-    parser.add_argument('-n', '--name', type=str, default='conan_deploy', help='name of the output file')
     parser.add_argument('-g', '--generator', type=str, action='append', dest='generators', required=True, help='deploy generator to use', choices=generators.keys())
     parser.add_argument('-v', '--version', action='version', version=__version__)
+    parser.add_argument('-c', '--config', type=str, default='conan-deploy.conf', help='configuration file')
     args = parser.parse_args(args)
 
     conan_build_info = os.path.join(tempfile.gettempdir(), "conanbuildinfo.json")
     if os.path.isfile(conan_build_info):
         os.unlink(conan_build_info)
 
+    if not os.path.isfile(args.config):
+        print("couldn't open config file %s" % args.config)
+        sys.exit(1)
+
+    config = ConfigParser(allow_no_value=True)
+    config.optionxform = str
+    config.read(args.config)
+
     for generator in args.generators:
         print("running generator %s" % generator)
-        generators[generator].init()
-        generators[generator].run(args.name)
+        generators[generator].init(config)
+        generators[generator].run()
