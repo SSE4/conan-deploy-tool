@@ -1,0 +1,47 @@
+matrix:
+  fast_finish: true
+  include:
+  - os: linux
+    sudo: false
+    language: python
+    python: '2.7'
+    if: type != cron
+  - os: linux
+    sudo: false
+    language: python
+    python: '3.6'
+    if: type != cron
+  - os: osx
+    language: generic
+    osx_image: xcode9
+    if: type != cron
+  - os: linux
+    sudo: false
+    env: CONAN_LOGGING_LEVEL=10
+    language: python
+    python: '3.6'
+    if: type = cron
+
+install:
+- ".travis/install.sh"
+
+script:
+- ".travis/run.sh"
+
+after_success:
+- codecov
+
+deploy:
+  - provider: pypi
+    user: ${PYPI_USERNAME}
+    password: ${PYPI_PASSWORD}
+    on:
+      tags: true
+      condition: "$TRAVIS_PYTHON_VERSION = '2.7'"
+  - provider: pypi
+    user: ${TEST_PYPI_USERNAME}
+    server: https://test.pypi.org/legacy/
+    password: ${TEST_PYPI_PASSWORD}
+    on:
+      branch: master
+      condition: "$TRAVIS_PYTHON_VERSION = '2.7'"
