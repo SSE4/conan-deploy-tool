@@ -12,14 +12,10 @@ import argparse
 import six
 import pkgutil
 import uuid
+import tempfile
 from six.moves import urllib
 from abc import abstractmethod, ABCMeta
 from distutils.dir_util import copy_tree
-
-try:
-    from backports import tempfile
-except ImportError:
-    import tempfile
 
 __version__ = '0.0.1'
 
