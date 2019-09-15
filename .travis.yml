@@ -38,6 +38,8 @@ deploy:
     on:
       tags: true
       condition: "$TRAVIS_PYTHON_VERSION = '2.7'"
+      skip_cleanup: true
+      skip_existing: true
   - provider: pypi
     user: ${TEST_PYPI_USERNAME}
     server: https://test.pypi.org/legacy/
@@ -45,3 +47,5 @@ deploy:
     on:
       branch: master
       condition: "$TRAVIS_PYTHON_VERSION = '2.7'"
+      skip_cleanup: true
+      skip_existing: true
