@@ -4,9 +4,9 @@ set -e
 set -x
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
-    brew update || brew update
-    brew outdated pyenv || brew upgrade pyenv
-    brew install pyenv-virtualenv
+    unset PYENV_ROOT
+    curl -L https://github.com/pyenv/pyenv-installer/raw/master/bin/pyenv-installer | bash
+    export PATH="$HOME/.pyenv/bin:$PATH"
 
     if which pyenv > /dev/null; then
         eval "$(pyenv init -)"
