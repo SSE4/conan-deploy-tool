@@ -16,6 +16,10 @@ import tempfile
 from six.moves import urllib
 from abc import abstractmethod, ABCMeta
 from distutils.dir_util import copy_tree
+try:
+    from tempfile import TemporaryDirectory
+except ImportError:
+    from backports.tempfile import TemporaryDirectory
 
 __version__ = '0.0.1'
 
@@ -122,14 +126,14 @@ class ArchiveGenerator(DirectoryGenerator):
         self.archive_format = archive_format
 
     def run(self, destination):
-        with tempfile.TemporaryDirectory() as temp_folder:
+        with TemporaryDirectory() as temp_folder:
             super(ArchiveGenerator, self).run(temp_folder)
             shutil.make_archive(destination, self.archive_format, temp_folder)
 
 
 class MakeSelfGenerator(DirectoryGenerator):
     def run(self, destination):
-        with tempfile.TemporaryDirectory() as temp_folder:
+        with TemporaryDirectory() as temp_folder:
             super(MakeSelfGenerator, self).run(temp_folder)
             makeself = os.path.join(tempfile.gettempdir(), "makeself", "makeself.sh")
             if not os.path.isfile(makeself):
@@ -147,7 +151,7 @@ class AppImageGenerator(DirectoryGenerator):
         super(AppImageGenerator, self).__init__()
 
     def run(self, destination):
-        with tempfile.TemporaryDirectory() as temp_folder:
+        with TemporaryDirectory() as temp_folder:
             super(AppImageGenerator, self).run(temp_folder)
             arch = "x86_64"
             apprun = "AppRun-%s" % arch
@@ -174,7 +178,7 @@ Categories=Utility;
 
 class FlatPakGenerator(DirectoryGenerator):
     def run(self, destination):
-        with tempfile.TemporaryDirectory() as temp_folder:
+        with TemporaryDirectory() as temp_folder:
             super(FlatPakGenerator, self).run(temp_folder)
 
             app_id = "org.flatpak.%s" % destination
@@ -223,7 +227,7 @@ class FlatPakGenerator(DirectoryGenerator):
             self._create_entry_point(entry_point, "/app")
             self._chmod_plus_x(entry_point)
 
-            with tempfile.TemporaryDirectory() as build_folder:
+            with TemporaryDirectory() as build_folder:
                 self._run(["flatpak-builder", build_folder, manifest_file])
                 self._run(["flatpak-builder", "--repo=repo", "--force-clean", build_folder, manifest_file])
                 try:
