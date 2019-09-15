@@ -150,7 +150,7 @@ class MakeSelfGenerator(DirectoryGenerator):
                 self._chmod_plus_x(filename)
                 self._run([filename, "--target", os.path.join(tempfile.gettempdir(), "makeself")])
                 os.unlink(filename)
-            self._create_entry_point(os.path.join(temp_folder, "conan-entrypoint.sh"), "$USER_PWD")
+            self._create_entry_point(os.path.join(temp_folder, "conan-entrypoint.sh"), "$PWD")
             self._run([makeself, temp_folder, self._name+ ".run", "conan-generated makeself.sh", "./conan-entrypoint.sh"])
 
 
